@@ -16,3 +16,4 @@ adb shell am start -a android.intent.action.VIEW -d 'insecureshop://com.insecure
 
 # REFERENCES
 https://z4ki.medium.com/android-deep-links-exploitation-4abade4d45b4
+https://blog.oversecured.com/Android-security-checklist-webview/
