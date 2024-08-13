@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/xml"
 	"flag"
 	"fmt"
@@ -9,161 +11,168 @@ import (
 	"os/exec"
 	"path/filepath"
 )
-const asciiArt = `
- ██████╗ ██╗    ██╗ █████╗ ██╗     ██╗███╗   ██╗██╗  ██╗
-██╔═══██╗██║    ██║██╔══██╗██║     ██║████╗  ██║██║ ██╔╝
-██║   ██║██║ █╗ ██║███████║██║     ██║██╔██╗ ██║█████╔╝ 
-██║   ██║██║███╗██║██╔══██║██║     ██║██║╚██╗██║██╔═██╗ 
-╚██████╔╝╚███╔███╔╝██║  ██║███████╗██║██║ ╚████║██║  ██╗
- ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
-`
-func printCommonFunctions() {
-	fmt.Println("Funciones Comunes para Manejar Weblinks, Deeplinks, y Applinks:")
-	fmt.Println("1. getPath() - Devuelve la parte de la ruta del URI.")
-	fmt.Println("   Ejemplo: String path = uri.getPath();")
-	fmt.Println("2. getScheme() - Devuelve el esquema del URI (por ejemplo, http, https, myapp).")
-	fmt.Println("   Ejemplo: String scheme = uri.getScheme();")
-	fmt.Println("3. getHost() - Devuelve el host del URI.")
-	fmt.Println("   Ejemplo: String host = uri.getHost();")
-	fmt.Println("4. getQueryParameter(String key) - Devuelve el valor de un parámetro de consulta específico.")
-	fmt.Println("   Ejemplo: String value = uri.getQueryParameter(\"id\");")
-	fmt.Println("5. getFragment() - Devuelve el fragmento del URI (la parte después del #).")
-	fmt.Println("   Ejemplo: String fragment = uri.getFragment();")
-	fmt.Println("6. getAuthority() - Devuelve la autoridad del URI, que generalmente incluye el host y la información del puerto.")
-	fmt.Println("   Ejemplo: String authority = uri.getAuthority();")
-	fmt.Println("7. getLastPathSegment() - Devuelve el último segmento del path del URI.")
-	fmt.Println("   Ejemplo: String lastSegment = uri.getLastPathSegment();")
-	fmt.Println("8. getPathSegments() - Devuelve una lista de los segmentos del path.")
-	fmt.Println("   Ejemplo: List<String> segments = uri.getPathSegments();")
-	fmt.Println("9. startsWith(String prefix) - Verifica si una cadena comienza con un prefijo específico.")
-	fmt.Println("   Ejemplo: boolean startsWithWeb = uri.getPath().startsWith(\"/web\");")
-	fmt.Println("10. Intent.getData() - Devuelve el URI que inició el intento.")
-	fmt.Println("    Ejemplo: Uri uri = intent.getData();")
-}
 
-const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
-	colorPurple = "\033[35m"
-	colorCyan   = "\033[36m"
-	colorWhite  = "\033[37m"
-)
-type IntentFilter struct {
-	Data []Data `xml:"data"`
-}
-
-type Data struct {
-	Scheme    string `xml:"scheme,attr"`
-	Host      string `xml:"host,attr"`
-	AutoVerify string `xml:"autoVerify,attr"`
+type Activity struct {
+	Name     string `xml:"name,attr"`
+	Exported string `xml:"exported,attr"`
 }
 
 type Manifest struct {
-	IntentFilters []IntentFilter `xml:"application>activity>intent-filter"`
-}
-
-func decompileApk(apkPath, outputDir string) error {
-	fmt.Printf("Descompilando %s...\n", apkPath)
-	cmd := exec.Command("apktool", "d", apkPath, "-o", outputDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func parseManifest(manifestPath string) (*Manifest, error) {
-	xmlFile, err := os.Open(manifestPath)
-	if err != nil {
-		return nil, fmt.Errorf("no se pudo abrir AndroidManifest.xml: %v", err)
-	}
-	defer xmlFile.Close()
-
-	byteValue, _ := ioutil.ReadAll(xmlFile)
-	var manifest Manifest
-	err = xml.Unmarshal(byteValue, &manifest)
-	if err != nil {
-		return nil, fmt.Errorf("error al analizar AndroidManifest.xml: %v", err)
-	}
-
-	return &manifest, nil
-}
-
-func findLinks(manifest *Manifest) (deepLinks, webLinks, appLinks []string) {
-	for _, filter := range manifest.IntentFilters {
-		for _, data := range filter.Data {
-			if data.Scheme != "" && data.Scheme != "http" && data.Scheme != "https" {
-				deepLinks = append(deepLinks, fmt.Sprintf("%s://%s", data.Scheme, data.Host))
-			} else if data.Scheme == "http" || data.Scheme == "https" {
-				if data.AutoVerify == "true" {
-					appLinks = append(appLinks, fmt.Sprintf("%s://%s", data.Scheme, data.Host))
-				} else {
-					webLinks = append(webLinks, fmt.Sprintf("%s://%s", data.Scheme, data.Host))
-				}
-			}
-		}
-	}
-	return
-}
-
-func cleanUp(directory string) {
-	err := os.RemoveAll(directory)
-	if err != nil {
-		fmt.Printf("Error al eliminar archivos temporales: %v\n", err)
-	} else {
-		fmt.Printf("Archivos temporales eliminados de %s\n", directory)
-	}
-}
-
-func analyzeApk(apkPath string) {
-	outputDir := "apk_output"
-
-	err := decompileApk(apkPath, outputDir)
-	if err != nil {
-		fmt.Printf("Error durante la descompilación: %v\n", err)
-		return
-	}
-
-	manifestPath := filepath.Join(outputDir, "AndroidManifest.xml")
-	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
-		fmt.Println("No se encontró AndroidManifest.xml. Verifica la descompilación.")
-		cleanUp(outputDir)
-		return
-	}
-
-	manifest, err := parseManifest(manifestPath)
-	if err != nil {
-		fmt.Println(err)
-		cleanUp(outputDir)
-		return
-	}
-
-	deeplinks, weblinks, applinks := findLinks(manifest)
-	fmt.Printf("%sDeeplinks encontrados: %s%s%s\n", colorBlue, colorGreen, deeplinks, colorReset)
-	fmt.Printf("%sWeblinks encontrados: %s%s%s\n", colorBlue, colorGreen, weblinks, colorReset)
-	fmt.Printf("%sApplinks encontrados: %s%s%s\n", colorBlue, colorGreen, applinks, colorReset)
-
-
-	cleanUp(outputDir)
+	PackageName string     `xml:"package,attr"`
+	Activities  []Activity `xml:"application>activity"`
 }
 
 func main() {
-	fmt.Println(asciiArt)
-	showHelp := flag.Bool("h", false, "Mostrar funciones comunes para manejar weblinks, deeplinks, y applinks")
 	apkPath := flag.String("apk", "", "Ruta al archivo .apk a analizar")
+	wordlistPath := flag.String("w", "", "Ruta al archivo de wordlist a utilizar")
+	url := flag.String("u", "", "Especificar una URL única para fuzzing")
+	listActivities := flag.Bool("list", false, "Listar todas las actividades y salir")
 	flag.Parse()
 
-	if *showHelp {
-		printCommonFunctions()
-		os.Exit(0)
-	}
-
-	if *apkPath == "" {
-		fmt.Println("Debes proporcionar la ruta al archivo .apk.")
+	if *apkPath == "" || (*wordlistPath == "" && *url == "" && !*listActivities) {
+		fmt.Println("Debes proporcionar la ruta al archivo .apk y una wordlist o una URL.")
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	analyzeApk(*apkPath)
+	if err := processAPK(*apkPath, *wordlistPath, *url, *listActivities); err != nil {
+		fmt.Printf("Error durante el procesamiento del APK: %v\n", err)
+	} else if !*listActivities {
+		fmt.Println("Fuzzing completado exitosamente.")
+	}
+}
+
+func processAPK(apkPath, wordlistPath, url string, listActivities bool) error {
+	outputDir := "apk_output"
+	defer os.RemoveAll(outputDir) // Limpieza automática al final
+
+	if err := decompileApk(apkPath, outputDir); err != nil {
+		return fmt.Errorf("error durante la descompilación: %v", err)
+	}
+
+	manifest, err := parseManifest(filepath.Join(outputDir, "AndroidManifest.xml"))
+	if err != nil {
+		return fmt.Errorf("error analizando el AndroidManifest.xml: %v", err)
+	}
+
+	// Imprimir la información del paquete
+	fmt.Printf("Información del paquete:\n")
+	fmt.Printf("Nombre del paquete: %s\n", manifest.PackageName)
+
+	activities := getAllActivities(manifest)
+
+	// Imprimir la cantidad de actividades encontradas
+	fmt.Printf("Total de actividades encontradas: %d\n", len(activities))
+
+	if listActivities {
+		printAllActivities(activities)
+		return nil
+	}
+
+	if len(activities) == 0 {
+		return fmt.Errorf("no se encontraron actividades")
+	}
+
+	var words []string
+	if wordlistPath != "" {
+		words, err = readWordlist(wordlistPath)
+		if err != nil {
+			return fmt.Errorf("error leyendo la wordlist: %v", err)
+		}
+	}
+
+	if url != "" {
+		return fuzzWithURL(manifest.PackageName, activities, url)
+	}
+
+	return fuzzActivities(manifest.PackageName, activities, words)
+}
+
+func decompileApk(apkPath, outputDir string) error {
+	cmd := exec.Command("apktool", "d", apkPath, "-o", outputDir)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
+func parseManifest(manifestPath string) (*Manifest, error) {
+	data, err := ioutil.ReadFile(manifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("no se pudo leer AndroidManifest.xml: %v", err)
+	}
+	var manifest Manifest
+	if err := xml.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("error al analizar AndroidManifest.xml: %v", err)
+	}
+	return &manifest, nil
+}
+
+func getAllActivities(manifest *Manifest) []Activity {
+	return manifest.Activities
+}
+
+func printAllActivities(activities []Activity) {
+	fmt.Println("Lista de todas las actividades encontradas:")
+	for _, activity := range activities {
+		exported := "no exportada"
+		if activity.Exported == "true" {
+			exported = "exportada"
+		}
+		fmt.Printf("Actividad: %s, Estado: %s\n", activity.Name, exported)
+	}
+}
+
+func readWordlist(wordlistPath string) ([]string, error) {
+	file, err := os.Open(wordlistPath)
+	if err != nil {
+		return nil, fmt.Errorf("no se pudo abrir la wordlist: %v", err)
+	}
+	defer file.Close()
+
+	var words []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		words = append(words, scanner.Text())
+	}
+
+	return words, scanner.Err()
+}
+
+func fuzzActivities(packageName string, activities []Activity, words []string) error {
+	for _, activity := range activities {
+		for _, word := range words {
+			url := fmt.Sprintf("https://example.com/%s", word)
+			command := fmt.Sprintf("adb shell am start -n %s/%s -d '%s'", packageName, activity.Name, url)
+			fmt.Println(command)
+			if err := runADBCommand(command); err != nil {
+				fmt.Printf("Error ejecutando comando adb para %s: %v\n", activity.Name, err)
+			}
+			fmt.Println("Presiona Enter para continuar...")
+			fmt.Scanln() // Esperar a que el usuario presione Enter
+		}
+	}
+	return nil
+}
+
+func fuzzWithURL(packageName string, activities []Activity, url string) error {
+	for _, activity := range activities {
+		command := fmt.Sprintf("adb shell am start -n %s/%s -d '%s'", packageName, activity.Name, url)
+		fmt.Println(command)
+		if err := runADBCommand(command); err != nil {
+			fmt.Printf("Error ejecutando comando adb para %s: %v\n", activity.Name, err)
+		}
+		fmt.Println("Presiona Enter para continuar...")
+		fmt.Scanln() // Esperar a que el usuario presione Enter
+	}
+	return nil
+}
+
+func runADBCommand(command string) error {
+	cmd := exec.Command("bash", "-c", command)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("error ejecutando comando adb: %v, %s", err, stderr.String())
+	}
+	return nil
 }
